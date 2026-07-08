@@ -59,16 +59,23 @@ aws ssm start-session --target <INSTANCE_ID>
 aws ec2 revoke-security-group-ingress --group-id <SG_ID> --protocol tcp --port 22 --cidr 0.0.0.0/0
 ```
 
-### Tailscale on the VM (all clouds)
+### Packages + Tailscale on the VM (all clouds)
 
 ```sh
+sudo apt-get update && sudo apt-get install -y mosh tmux git   # mosh must exist on BOTH ends
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --hostname <NODE>      # prints a login URL — approve it in a browser
 sudo tailscale set --ssh=true            # identity-based SSH; add --accept-risk=lose-ssh if connected via tailnet
 ```
 
+Name nodes so they scale — `gcp-devbox`, `aws-devbox`, not just `devbox` (rename later with
+`sudo tailscale set --hostname <new>`).
+
 No inbound firewall rule is needed for Tailscale — WireGuard punches out on UDP and falls back
 to TCP-443 relays, so it works even from UDP-hostile networks (mosh's UDP rides inside the tunnel).
+
+Optional cost saver: if nobody runs overnight jobs, add an auto-stop schedule (GCP instance
+schedules / AWS EventBridge Scheduler) — with a pinned IP, a stopped VM restarts with nothing broken.
 
 ## 2. Onboard a person (admin, once per person)
 
@@ -154,6 +161,10 @@ mosh <NODE> -- tmux new -A -s main
   dragging to bypass tmux entirely (native terminal selection). The clipboard fix only applies
   to clients attached after the config loaded — if copy is dead, detach/reattach once.
 - **Scrollback**: `ctrl-b [` (mosh has no native scrollback; tmux's 100k-line history is it).
+- Worth an alias: `alias dev='mosh <NODE> -- tmux new -A -s main'`
+- **Dev servers need no tunnels**: anything listening on the VM is privately reachable from your
+  laptop at `http://<NODE>:<port>` over the tailnet. `tailscale serve` adds HTTPS or shares it
+  with teammates; nothing is exposed to the internet.
 
 ## 6. Sync YOUR tooling (each person)
 
@@ -164,6 +175,8 @@ scp ~/.gitconfig <NODE>:~/                    # then set your own git identity o
 scp ~/.zshrc <NODE>:~/                        # trim machine-specific lines after copying
 # CLIs you use daily (auth each with YOUR OWN credentials, never a teammate's):
 ssh <NODE> 'curl -fsSL https://claude.ai/install.sh | bash'
+# MCP servers your agent uses — user scope makes them available in every project:
+ssh <NODE> 'claude mcp add --transport http --scope user <name> <mcp-url>'
 ```
 
 ## Troubleshooting
@@ -173,6 +186,24 @@ ssh <NODE> 'curl -fsSL https://claude.ai/install.sh | bash'
 | `<NODE>` unreachable | Tailscale app not running or logged out on your laptop |
 | ssh hangs on a login.tailscale.com URL | ACL `check` re-auth — open it; fix permanently via `accept` |
 | mosh: "UDP port 60001 not reachable" | You're bypassing the tailnet (public IPs need open UDP; tailnet needs none) |
-| Copy/paste dead | Detach/reattach tmux; verify the `Ms=` line exists in `~/.tmux.conf` |
+| Copy/paste dead | Detach/reattach tmux; verify the `Ms=` line exists in `~/.tmux.conf`; still dead → hop-isolation test below |
+| Laggy typing | `tailscale ping <NODE>` — "via DERP" means relayed; direct paths usually return once both ends have real connectivity |
 | Everything down (Tailscale outage) | GCP: `gcloud compute ssh <VM> --zone <ZONE> --tunnel-through-iap` · AWS: `aws ssm start-session --target <INSTANCE_ID>` |
 | VM stopped | Start it via your cloud CLI/console — with a pinned IP nothing else changes |
+
+### Clipboard hop-isolation test
+
+When copy silently dies you have three suspects: tmux, mosh, or your terminal. Run both of these
+inside tmux (needs `tmux set -g allow-passthrough on` for the second), then paste locally —
+whichever string arrives tells you which hop works:
+
+```sh
+# full chain (tmux intercepts and re-emits via its Ms capability):
+printf '\033]52;c;%s\007' "$(printf %s TMUX-PATH-OK | base64)"
+# bypass tmux (raw passthrough straight to mosh/terminal):
+printf '\033Ptmux;\033\033]52;c;%s\007\033\\' "$(printf %s MOSH-PATH-OK | base64)"
+```
+
+Paste = `TMUX-PATH-OK` → everything works. Paste = `MOSH-PATH-OK` → tmux's clipboard hop is
+broken (check the `Ms=` override). Neither → mosh or the terminal is eating OSC 52 (mosh needs
+≥1.4; check your terminal's clipboard-write permission).
