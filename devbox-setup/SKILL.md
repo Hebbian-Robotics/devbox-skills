@@ -186,6 +186,7 @@ ssh <NODE> 'claude mcp add --transport http --scope user <name> <mcp-url>'
 | `<NODE>` unreachable | Tailscale app not running or logged out on your laptop |
 | ssh hangs on a login.tailscale.com URL | ACL `check` re-auth — open it; fix permanently via `accept` |
 | mosh: "UDP port 60001 not reachable" | You're bypassing the tailnet (public IPs need open UDP; tailnet needs none) |
+| mosh: "needs a UTF-8 native locale" | Your laptop's LANG (e.g. `en_SG.UTF-8`) isn't generated on the VM — cloud images only ship en_US. Fix: `ssh <NODE> 'sudo locale-gen <your LANG> && sudo update-locale'` |
 | Copy/paste dead | Detach/reattach tmux; verify the `Ms=` line exists in `~/.tmux.conf`; still dead → hop-isolation test below |
 | Laggy typing | `tailscale ping <NODE>` — "via DERP" means relayed; direct paths usually return once both ends have real connectivity |
 | Everything down (Tailscale outage) | GCP: `gcloud compute ssh <VM> --zone <ZONE> --tunnel-through-iap` · AWS: `aws ssm start-session --target <INSTANCE_ID>` |
