@@ -134,6 +134,10 @@ set -g escape-time 10
 set -g renumber-windows on
 # Clipboard through mosh (explicit "c" target + BEL, or mosh drops the copy):
 set -as terminal-overrides ',xterm*:Ms=\E]52;c;%p2%s\007'
+# Let applications inside panes (interactive CLIs with "press c to copy" etc.) write the
+# clipboard too — the default "external" only forwards tmux's own copy-mode, so app-initiated
+# copies claim success but never arrive:
+set -g set-clipboard on
 # Sessions survive VM reboots: resurrect saves layouts, continuum autosaves/restores.
 set -g @plugin 'tmux-plugins/tpm'
 set -g @plugin 'tmux-plugins/tmux-resurrect'
@@ -152,16 +156,28 @@ tmux start-server; tmux source-file ~/.tmux.conf 2>/dev/null
 ## 5. Daily driver
 
 ```sh
-mosh <NODE> -- tmux new -A -s main
+mosh <NODE>
 ```
 
-- Survives lid-close, Wi-Fi switches, IP changes — the session resumes instantly on wake.
-- `ctrl-b d` detaches; everything keeps running server-side.
-- **Copy**: mouse-select inside tmux → lands on your local clipboard. Hold **Option** while
-  dragging to bypass tmux entirely (native terminal selection). The clipboard fix only applies
-  to clients attached after the config loaded — if copy is dead, detach/reattach once.
-- **Scrollback**: `ctrl-b [` (mosh has no native scrollback; tmux's 100k-line history is it).
-- Worth an alias: `alias dev='mosh <NODE> -- tmux new -A -s main'`
+That's the entry point: a plain mosh shell. It survives lid-close, Wi-Fi switches, and IP
+changes on its own — tmux is a second, optional layer you attach when you want work to outlive
+the connection itself (VM reboots, multi-day jobs, picking the same shell up from another machine):
+
+```sh
+tmux new -A -s main      # inside the mosh shell; ctrl-b d detaches, everything keeps running
+```
+
+Keeping tmux manual also sidesteps a real tradeoff: tmux intercepts the terminal, so interactive
+apps behave slightly differently inside it (clipboard, mouse). The config above fixes the known
+cases, but a plain mosh shell is always the most transparent path — use it by default, attach
+tmux when persistence matters.
+
+- **Copy inside tmux**: mouse-select → local clipboard (via the `Ms` fix). Hold **Option** while
+  dragging to bypass tmux entirely (native terminal selection). App-initiated copies ("press c
+  to copy" in interactive CLIs) need the `set-clipboard on` line. Config changes only apply to
+  clients attached after the config loaded — when in doubt, detach/reattach once.
+- **Scrollback inside tmux**: `ctrl-b [` (mosh has no native scrollback; tmux's history is it).
+- Worth an alias: `alias dev='mosh <NODE>'`
 - **Dev servers need no tunnels**: anything listening on the VM is privately reachable from your
   laptop at `http://<NODE>:<port>` over the tailnet. `tailscale serve` adds HTTPS or shares it
   with teammates; nothing is exposed to the internet.
@@ -188,6 +204,7 @@ ssh <NODE> 'claude mcp add --transport http --scope user <name> <mcp-url>'
 | mosh: "UDP port 60001 not reachable" | You're bypassing the tailnet (public IPs need open UDP; tailnet needs none) |
 | mosh: "needs a UTF-8 native locale" | Your laptop's LANG (e.g. `en_SG.UTF-8`) isn't generated on the VM — cloud images only ship en_US. Fix: `ssh <NODE> 'sudo locale-gen <your LANG> && sudo update-locale'` |
 | Copy/paste dead | Detach/reattach tmux; verify the `Ms=` line exists in `~/.tmux.conf`; still dead → hop-isolation test below |
+| App says "copied" inside tmux, clipboard empty (works outside tmux) | tmux's default `set-clipboard external` forwards only its own copy-mode, not app-initiated OSC 52 — add `set -g set-clipboard on` |
 | Laggy typing | `tailscale ping <NODE>` — "via DERP" means relayed; direct paths usually return once both ends have real connectivity |
 | Everything down (Tailscale outage) | GCP: `gcloud compute ssh <VM> --zone <ZONE> --tunnel-through-iap` · AWS: `aws ssm start-session --target <INSTANCE_ID>` |
 | VM stopped | Start it via your cloud CLI/console — with a pinned IP nothing else changes |
