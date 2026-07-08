@@ -121,8 +121,8 @@ Test with `ssh <NODE> 'echo ok'`. If it hangs printing a login.tailscale.com URL
 
 ## 4. tmux that survives everything (each person, on the VM)
 
-`~/.tmux.conf` — the `Ms` line is load-bearing: mosh only forwards OSC 52 clipboard writes that
-use an explicit `c` target and BEL terminator, so without it, copying from tmux silently dies:
+`~/.tmux.conf` — three clipboard lines matter here; each covers a different copy path
+(see "Clipboard reality check" below for what works over which transport):
 
 ```
 set -g mouse on
@@ -132,12 +132,16 @@ set -ga terminal-overrides ",xterm-256color:Tc"
 setw -g mode-keys vi
 set -g escape-time 10
 set -g renumber-windows on
-# Clipboard through mosh (explicit "c" target + BEL, or mosh drops the copy):
+# Advertise OSC 52 clipboard to tmux with an explicit "c" target + BEL terminator
+# (the most widely accepted form) so copy-mode yanks reach the outer terminal:
 set -as terminal-overrides ',xterm*:Ms=\E]52;c;%p2%s\007'
 # Let applications inside panes (interactive CLIs with "press c to copy" etc.) write the
 # clipboard too — the default "external" only forwards tmux's own copy-mode, so app-initiated
 # copies claim success but never arrive:
 set -g set-clipboard on
+# Some interactive CLIs (AI coding agents etc.) wrap their OSC 52 in DCS passthrough —
+# without this tmux silently drops those copies even though the app reports success:
+set -g allow-passthrough on
 # Sessions survive VM reboots: resurrect saves layouts, continuum autosaves/restores.
 set -g @plugin 'tmux-plugins/tpm'
 set -g @plugin 'tmux-plugins/tmux-resurrect'
@@ -172,10 +176,26 @@ apps behave slightly differently inside it (clipboard, mouse). The config above 
 cases, but a plain mosh shell is always the most transparent path — use it by default, attach
 tmux when persistence matters.
 
-- **Copy inside tmux**: mouse-select → local clipboard (via the `Ms` fix). Hold **Option** while
-  dragging to bypass tmux entirely (native terminal selection). App-initiated copies ("press c
-  to copy" in interactive CLIs) need the `set-clipboard on` line. Config changes only apply to
-  clients attached after the config loaded — when in doubt, detach/reattach once.
+### Clipboard reality check (read this before debugging copy/paste)
+
+Escape-sequence copying (OSC 52 — what tmux copy-mode and "press c to copy" CLIs emit)
+**does not survive stock mosh**: mosh re-renders terminal state rather than passing bytes
+through, and clipboard forwarding has been an open request since 2015
+(mobile-shell/mosh#637 — the PRs were never merged; claims that a `c;` Ms override fixes it
+apply to patched builds). It **does** survive plain ssh untouched.
+
+Practical rules:
+- **Copy-heavy session (agent CLIs, yanking from tmux history)** → use an ssh tab:
+  `ssh <NODE>` is stable over the tailnet, and with the tmux config above every copy path
+  works (copy-mode, app OSC 52, DCS-wrapped).
+- **Roaming/flaky-network session** → mosh, and copy visible text with your terminal's
+  native selection (hold **Option** on macOS to bypass tmux/app mouse capture). For scrolled-
+  back content: page through `ctrl-b [` and select screenful-wise.
+- Want both at once? **Eternal Terminal** (`et`) survives roaming like mosh but is
+  byte-transparent like ssh, so OSC 52 works through it.
+- Config changes only apply to tmux clients attached after the config loaded — when in
+  doubt, detach/reattach once.
+
 - **Scrollback inside tmux**: `ctrl-b [` (mosh has no native scrollback; tmux's history is it).
 - Worth an alias: `alias dev='mosh <NODE>'`
 - **Dev servers need no tunnels**: anything listening on the VM is privately reachable from your
@@ -203,25 +223,30 @@ ssh <NODE> 'claude mcp add --transport http --scope user <name> <mcp-url>'
 | ssh hangs on a login.tailscale.com URL | ACL `check` re-auth — open it; fix permanently via `accept` |
 | mosh: "UDP port 60001 not reachable" | You're bypassing the tailnet (public IPs need open UDP; tailnet needs none) |
 | mosh: "needs a UTF-8 native locale" | Your laptop's LANG (e.g. `en_SG.UTF-8`) isn't generated on the VM — cloud images only ship en_US. Fix: `ssh <NODE> 'sudo locale-gen <your LANG> && sudo update-locale'` |
-| Copy/paste dead | Detach/reattach tmux; verify the `Ms=` line exists in `~/.tmux.conf`; still dead → hop-isolation test below |
-| App says "copied" inside tmux, clipboard empty (works outside tmux) | tmux's default `set-clipboard external` forwards only its own copy-mode, not app-initiated OSC 52 — add `set -g set-clipboard on` |
+| Copy/paste dead | **First: are you on mosh?** OSC 52 never traverses stock mosh — switch to an ssh tab or copy with terminal-native selection (Option+drag). On ssh: detach/reattach tmux, verify the `Ms=` line, then run the hop-isolation test below |
+| App says "copied" inside tmux, clipboard empty (works outside tmux, over ssh) | Raw OSC 52 apps need `set -g set-clipboard on`; DCS-wrapping apps (AI agent CLIs) need `set -g allow-passthrough on` — set both |
 | Laggy typing | `tailscale ping <NODE>` — "via DERP" means relayed; direct paths usually return once both ends have real connectivity |
 | Everything down (Tailscale outage) | GCP: `gcloud compute ssh <VM> --zone <ZONE> --tunnel-through-iap` · AWS: `aws ssm start-session --target <INSTANCE_ID>` |
 | VM stopped | Start it via your cloud CLI/console — with a pinned IP nothing else changes |
 
-### Clipboard hop-isolation test
+### Clipboard hop-isolation test (run over ssh, not mosh)
 
-When copy silently dies you have three suspects: tmux, mosh, or your terminal. Run both of these
-inside tmux (needs `tmux set -g allow-passthrough on` for the second), then paste locally —
-whichever string arrives tells you which hop works:
+When copy silently dies you have three suspects: tmux, the transport, or your terminal. Run
+both of these inside tmux, then paste locally — whichever string arrives tells you which hop
+works:
 
 ```sh
 # full chain (tmux intercepts and re-emits via its Ms capability):
 printf '\033]52;c;%s\007' "$(printf %s TMUX-PATH-OK | base64)"
-# bypass tmux (raw passthrough straight to mosh/terminal):
-printf '\033Ptmux;\033\033]52;c;%s\007\033\\' "$(printf %s MOSH-PATH-OK | base64)"
+# bypass tmux (raw passthrough straight to the transport/terminal):
+printf '\033Ptmux;\033\033]52;c;%s\007\033\\' "$(printf %s DIRECT-PATH-OK | base64)"
 ```
 
-Paste = `TMUX-PATH-OK` → everything works. Paste = `MOSH-PATH-OK` → tmux's clipboard hop is
-broken (check the `Ms=` override). Neither → mosh or the terminal is eating OSC 52 (mosh needs
-≥1.4; check your terminal's clipboard-write permission).
+Paste = `TMUX-PATH-OK` → everything works. Paste = `DIRECT-PATH-OK` only → tmux's clipboard
+hop is broken (check the `Ms=` override and `set-clipboard`). Neither → the transport or
+terminal is eating OSC 52 — if you're on mosh, that's expected (see the reality check above);
+on ssh, check your terminal's clipboard-write permission. To test the terminal alone, run the
+first printf in a plain local shell (no ssh, no tmux).
+
+One trap from real debugging: when grepping captures for OSC 52, match the ESC byte
+(`rg -a $'\x1b\]52'`) — matching a bare `]52` finds false positives in ordinary text.
