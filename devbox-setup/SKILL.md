@@ -288,6 +288,7 @@ additions (aliases, extra CLIs, agent config) — the next devbox becomes one co
 | mosh: "needs a UTF-8 native locale" | Your laptop's LANG (e.g. `en_SG.UTF-8`) isn't generated on the VM — cloud images only ship en_US. Fix: `ssh <NODE> 'sudo locale-gen <your LANG> && sudo update-locale'` |
 | Copy/paste dead | **First: are you on mosh?** OSC 52 never traverses stock mosh — switch to an ssh tab or copy with terminal-native selection (Option+drag). On ssh: detach/reattach tmux, verify the `Ms=` line, then run the hop-isolation test below |
 | App says "copied" inside tmux, clipboard empty (works outside tmux, over ssh) | Raw OSC 52 apps need `set -g set-clipboard on`; DCS-wrapping apps (AI agent CLIs) need `set -g allow-passthrough on` — set both |
+| Trackpad scrolling cycles shell history in plain mosh | Expected: mosh uses the alternate screen (no scrollback), so terminals convert scroll to arrow keys there. Attach tmux (`tmux new -A -s main`) to scroll real history, or use an ssh tab for the terminal's native scrollback |
 | Laggy typing | `tailscale ping <NODE>` — "via DERP" means relayed; direct paths usually return once both ends have real connectivity |
 | Everything down (Tailscale outage) | GCP: `gcloud compute ssh <VM> --zone <ZONE> --tunnel-through-iap` · AWS: `aws ssm start-session --target <INSTANCE_ID>` |
 | VM stopped | Start it via your cloud CLI/console — with a pinned IP nothing else changes |
