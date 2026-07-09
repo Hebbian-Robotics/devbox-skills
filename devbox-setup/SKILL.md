@@ -244,6 +244,25 @@ npm install -g @openai/codex                      # Codex CLI (needs node from a
 Your cloud provider's CLI (gcloud / aws) is usually preinstalled on that cloud's images;
 each person runs its auth login themselves.
 
+Quality tooling — linters and checkers worth having on the box so agents and humans can run
+the same checks everywhere. Preference: strict rule sets, fast compiled tools, cohesive
+ecosystems. The per-language ones (Biome for TypeScript, ruff + ty for Python, Clippy with
+pedantic lints for Rust) come in per-project via pnpm/uv/rustup — don't install those
+globally. The cross-cutting ones are global:
+
+```sh
+sudo apt-get install -y shellcheck                # shell scripts
+# Dockerfiles (applies ShellCheck rules to RUN lines; no apt package — grab the binary):
+sudo curl -fsSL -o /usr/local/bin/hadolint \
+  https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64 && \
+  sudo chmod +x /usr/local/bin/hadolint
+# Broken links in docs/markdown (Rust; via cargo, or grab a release binary):
+cargo install --locked lychee
+# Terraform/IaC (skip unless you manage infra from the box):
+curl -fsSL https://get.opentofu.org/install-opentofu.sh | sh -s -- --install-method deb
+curl -fsSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+```
+
 ## 7. Sync YOUR personal setup (each person)
 
 On top of the shared baseline, your unix account is yours to furnish — push your own
