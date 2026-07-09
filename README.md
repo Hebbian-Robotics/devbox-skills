@@ -16,14 +16,17 @@ npx skills add Hebbian-Robotics/devbox-skills
 
 | Skill | What it does |
 |---|---|
-| [`devbox-setup`](devbox-setup/SKILL.md) | Provision + harden a team devbox (no public SSH; IAP/SSM break-glass), onboard teammates via Tailscale SSH, and get mosh + tmux sessions with working clipboard that survive everything. |
+| [`devbox-setup`](devbox-setup/SKILL.md) | Provision + harden a team devbox (no public SSH; IAP/SSM break-glass), onboard teammates via Tailscale SSH, resilient ssh/mosh + tmux sessions with honest clipboard guidance, and a recommended developer toolchain (uv, fnm/pnpm, gh, ripgrep, AI coding agents). |
 
 ## The stack
 
 - **Tailscale + Tailscale SSH** — the VM has no internet-facing ports; your tailnet login is your credential
-- **mosh** — connections survive lid-close, network switches, and IP changes
-- **tmux + resurrect/continuum** — sessions survive VM reboots, with a clipboard fix that makes
-  copy/paste actually work through mosh
+- **ssh over the tailnet** for daily work (stable path, full clipboard support), **mosh** for
+  roaming/bad networks — with an honest account of what each transport can and can't do
+- **tmux + resurrect/continuum** — sessions survive VM reboots, with the three clipboard
+  settings that make copy/paste work for both copy-mode and agent CLIs
+- **A developer toolchain baseline** — uv, fnm + corepack/pnpm, rustup, gh, ripgrep/fd, and
+  AI coding agents (Claude Code, Codex), installed the non-stale way
 - **Cloud-native break-glass** — GCP IAP tunnel or AWS SSM Session Manager for when the tailnet is down
 
 ## License

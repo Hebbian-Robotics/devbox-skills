@@ -202,18 +202,62 @@ Practical rules:
   laptop at `http://<NODE>:<port>` over the tailnet. `tailscale serve` adds HTTPS or shares it
   with teammates; nothing is exposed to the internet.
 
-## 6. Sync YOUR tooling (each person)
+## 6. Recommended developer toolchain (once per VM)
 
-Your unix account on the VM is yours to furnish — push your own settings up:
+A baseline that makes the devbox feel like a real dev machine, not a bare VM. All of it is
+system-wide or per-user-trivial; install once, everyone benefits:
+
+```sh
+# Core CLI tools (apt names differ from the binaries: fd-find→fd, install ripgrep→rg):
+sudo apt-get update && sudo apt-get install -y \
+  ripgrep fd-find jq unzip zip build-essential pkg-config libssl-dev htop
+sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd   # Ubuntu names the binary fdfind
+
+# GitHub CLI (repo auth, PRs, CI from the box):
+sudo mkdir -p -m 755 /etc/apt/keyrings && \
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null && \
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null && \
+  sudo apt-get update && sudo apt-get install -y gh
+```
+
+Per-user language/package managers — prefer the official installers over apt (apt versions
+lag badly for these), and prefer the manager over the raw runtime (uv installs pythons,
+fnm/corepack install nodes):
+
+```sh
+# Python: uv (replaces pip/pyenv/venv workflows)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Node: fnm + corepack gives you node/pnpm/yarn pinned per-project
+curl -fsSL https://fnm.vercel.app/install | bash
+fnm install --lts && corepack enable pnpm
+# Rust (skip unless you build Rust):
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+```
+
+AI coding agents — install the ones your team uses, each person authenticates their own:
+
+```sh
+curl -fsSL https://claude.ai/install.sh | bash    # Claude Code
+npm install -g @openai/codex                      # Codex CLI (needs node from above)
+```
+
+Your cloud provider's CLI (gcloud / aws) is usually preinstalled on that cloud's images;
+each person runs its auth login themselves.
+
+## 7. Sync YOUR personal setup (each person)
+
+On top of the shared baseline, your unix account is yours to furnish — push your own
+settings up and authenticate tools with YOUR OWN credentials, never a teammate's:
 
 ```sh
 scp ~/.gitconfig <NODE>:~/                    # then set your own git identity on the VM
 scp ~/.zshrc <NODE>:~/                        # trim machine-specific lines after copying
-# CLIs you use daily (auth each with YOUR OWN credentials, never a teammate's):
-ssh <NODE> 'curl -fsSL https://claude.ai/install.sh | bash'
 # MCP servers your agent uses — user scope makes them available in every project:
 ssh <NODE> 'claude mcp add --transport http --scope user <name> <mcp-url>'
 ```
+
+Worth doing once: keep a `setup-devbox.sh` in your dotfiles repo with your personal
+additions (aliases, extra CLIs, agent config) — the next devbox becomes one command.
 
 ## Troubleshooting
 
