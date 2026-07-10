@@ -1,6 +1,6 @@
 ---
 name: devbox-setup
-description: Set up a shared cloud dev VM ("devbox") with zero public ports — Tailscale + Tailscale SSH for identity-based auth, mosh + tmux for sessions that survive laptop sleep and reboots, working clipboard through mosh, and a cloud-native break-glass path (GCP IAP or AWS SSM). Use when provisioning a team devbox, onboarding a teammate onto one, or debugging devbox connection/clipboard/session problems.
+description: Set up a shared cloud dev VM ("devbox") with zero public ports — Tailscale + Tailscale SSH for identity-based auth, mosh + tmux for sessions that survive laptop sleep and reboots, working clipboard through mosh, and a cloud-native break-glass path (GCP IAP or AWS SSM). Use when provisioning a team devbox, onboarding a teammate onto one, debugging devbox connection/clipboard/session problems, or pasting local screenshots/images into a remote agent session.
 ---
 
 # Cloud devbox: roaming-proof access with no public ports
@@ -202,6 +202,33 @@ Practical rules:
   laptop at `http://<NODE>:<port>` over the tailnet. `tailscale serve` adds HTTPS or shares it
   with teammates; nothing is exposed to the internet.
 
+### Pasting screenshots (local clipboard → remote)
+
+The reverse direction has a harder limit: terminals paste **text only**, so an image on your
+local clipboard can never reach the VM through ssh or mosh — OSC 52 has no image support, and
+kitty's OSC 5522 extension that would add it isn't implemented by other terminals yet. Agent
+CLIs' Ctrl+V image paste reads the OS clipboard, which doesn't exist on a headless VM.
+
+Ship the image as a file and paste its **path** instead. macOS: `brew install pngpaste`, then
+in `~/.zshrc`:
+
+```sh
+# Screenshot to clipboard (Cmd+Shift+Ctrl+4) → `pshot` → Cmd+V the path into the remote CLI
+# (agent CLIs read image files by path):
+pshot() {
+  local f="shot-$(date +%H%M%S).png"
+  pngpaste "/tmp/$f" || { echo "no image on clipboard" >&2; return 1; }
+  scp -q "/tmp/$f" <NODE>:/tmp/ &&
+    printf '/tmp/%s' "$f" | pbcopy &&
+    echo "→ <NODE>:/tmp/$f (path copied to clipboard)"
+}
+```
+
+The ControlMaster block in section 3 makes the scp near-instant. Transparent Ctrl+V bridges
+exist (cc-clip, clipaste: a local daemon + `ssh -R` tunnel + fake xclip on the VM), but mosh
+doesn't carry SSH port forwards, so they'd need a separate plain-ssh session held open — the
+path helper is the simpler fit for this stack.
+
 ## 6. Recommended developer toolchain (once per VM)
 
 A baseline that makes the devbox feel like a real dev machine, not a bare VM. All of it is
@@ -288,6 +315,7 @@ additions (aliases, extra CLIs, agent config) — the next devbox becomes one co
 | mosh: "needs a UTF-8 native locale" | Your laptop's LANG (e.g. `en_SG.UTF-8`) isn't generated on the VM — cloud images only ship en_US. Fix: `ssh <NODE> 'sudo locale-gen <your LANG> && sudo update-locale'` |
 | Copy/paste dead | **First: are you on mosh?** OSC 52 never traverses stock mosh — switch to an ssh tab or copy with terminal-native selection (Option+drag). On ssh: detach/reattach tmux, verify the `Ms=` line, then run the hop-isolation test below |
 | App says "copied" inside tmux, clipboard empty (works outside tmux, over ssh) | Raw OSC 52 apps need `set -g set-clipboard on`; DCS-wrapping apps (AI agent CLIs) need `set -g allow-passthrough on` — set both |
+| Pasting a screenshot/image does nothing | Expected on every transport: terminals paste text only. Ship the file and paste its path — `pshot` helper in section 5 |
 | Trackpad scrolling cycles shell history in plain mosh | Expected: mosh uses the alternate screen (no scrollback), so terminals convert scroll to arrow keys there. Attach tmux (`tmux new -A -s main`) to scroll real history, or use an ssh tab for the terminal's native scrollback |
 | Laggy typing | `tailscale ping <NODE>` — "via DERP" means relayed; direct paths usually return once both ends have real connectivity |
 | Everything down (Tailscale outage) | GCP: `gcloud compute ssh <VM> --zone <ZONE> --tunnel-through-iap` · AWS: `aws ssm start-session --target <INSTANCE_ID>` |
