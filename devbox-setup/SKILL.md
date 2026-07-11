@@ -339,6 +339,38 @@ ssh <NODE> 'claude mcp add --transport http --scope user <name> <mcp-url>'
 Worth doing once: keep a `setup-devbox.sh` in your dotfiles repo with your personal
 additions (aliases, extra CLIs, agent config) — the next devbox becomes one command.
 
+## 8. Recommended agent skills (each person)
+
+Agent skills give your coding agent reusable playbooks. Install with
+`npx skills add <owner>/<repo>`, list with `npx skills ls -g`, and discover more with the
+**find-skills** skill (it searches the registry — install it first, then let it find the rest):
+
+```sh
+npx skills add find-skills   # discovery: ask it "is there a skill for X?"
+```
+
+Default set worth having on any devbox:
+
+```sh
+# Project scaffolding — opinionated Cargo/pyproject/package.json/tsconfig/biome configs for
+# TS, Rust, Python, Docker, Shell (installs init-project + init-rust/python/typescript, and
+# includes the sccache+mold Rust build setup from section 6):
+npx skills add kstonekuan/init-project-skill
+# Coding style guide for humans + agents (explicit domain types, behavior-first tests):
+npx skills add kstonekuan/how-i-made-your-machine
+```
+
+Then add per your stack (discover exact sources via find-skills / skills.sh):
+
+- **Browser automation / web testing:** agent-browser, playwright-cli
+- **Frontend/UI work:** frontend-design, vercel-react-best-practices
+- **ML / Hugging Face:** hf-cli
+- **Web research at scale:** the Parallel skills (parallel-web-search, parallel-findall, …) —
+  needs a Parallel account; calls bill it.
+
+Keep **company-internal** skills (private agents, internal tooling) out of a shared box's default
+set — install those per person or per project so they don't leak onto teammates' accounts.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |
