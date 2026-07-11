@@ -261,6 +261,40 @@ fnm install --lts && corepack enable pnpm
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ```
 
+### Faster Rust builds (sccache + mold)
+
+If the team builds Rust, two cheap, high-leverage speedups — complementary, since they hit
+different phases of the build:
+
+- **sccache** caches compiled crates so unchanged dependencies never recompile. Install
+  (`cargo install sccache --locked`), then set it as the wrapper in your **global**
+  `~/.cargo/config.toml` — not a committed repo config, since a repo-level `rustc-wrapper`
+  breaks contributors who don't have sccache installed:
+  ```toml
+  [build]
+  rustc-wrapper = "sccache"
+  ```
+  For a cache **shared across machines / CI / ephemeral boxes**, point sccache at object
+  storage (it supports S3, GCS, Azure, Redis, memcached) via `SCCACHE_*` env vars in your
+  shell — read only when the sccache *server* starts, so `sccache --stop-server` after
+  changing them. Mind the write mode: some backends default to read-only (e.g. GCS needs
+  `SCCACHE_GCS_RW_MODE=READ_WRITE` or nothing is ever cached). Give the bucket a short
+  delete-lifecycle so it self-cleans. Verify with `sccache --show-stats`. The win is on
+  **dependency** crates; incremental debug builds of your own workspace are non-cacheable by design.
+
+- **mold** is a linker 3-10x faster than GNU ld. Linking is the part sccache *can't* cache
+  (a cache hit still relinks), so it's the biggest remaining win on incremental builds.
+  Install (`sudo apt-get install -y mold`) and wire it **per-target** in `.cargo/config.toml`
+  (repo or global) so it applies only to Linux:
+  ```toml
+  [target.x86_64-unknown-linux-gnu]
+  rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+  ```
+  Keep it Linux-scoped: mold can't link macOS Mach-O (its macOS port was discontinued), and
+  Apple's default linker (ld-prime, Xcode 15+) is already fast — a *global* `-fuse-ld=mold`
+  would break Mac builds. In Docker, `apt-get install mold` in the build stage and COPY the
+  `.cargo/config.toml` in; pair with cargo-chef so dependency compilation is a cached layer.
+
 AI coding agents — install the ones your team uses, each person authenticates their own:
 
 ```sh
