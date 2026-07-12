@@ -1,6 +1,6 @@
 ---
 name: devbox-setup
-description: Set up a shared cloud dev VM ("devbox") with zero public ports — Tailscale + Tailscale SSH for identity-based auth, mosh + tmux for sessions that survive laptop sleep and reboots, working clipboard through mosh, and a cloud-native break-glass path (GCP IAP or AWS SSM). Use when provisioning a team devbox, onboarding a teammate onto one, debugging devbox connection/clipboard/session problems, or pasting local screenshots/images into a remote agent session.
+description: Set up a shared cloud dev VM ("devbox") with zero public ports — Tailscale + Tailscale SSH for identity-based auth, mosh + tmux for sessions that survive laptop sleep and reboots, reliable clipboard paths with explicit mosh limitations, and a cloud-native break-glass path (GCP IAP or AWS SSM). Use when provisioning a team devbox, onboarding a teammate onto one, debugging devbox connection/clipboard/session problems, or pasting local screenshots/images into a remote agent session.
 ---
 
 # Cloud devbox: roaming-proof access with no public ports
@@ -10,7 +10,8 @@ A recipe for a shared Linux VM that a small team can use as a persistent dev mac
 - **No public SSH.** Nothing listens to the internet; day-to-day access rides Tailscale.
 - **Identity auth.** Tailscale SSH means no key management — your tailnet login is your credential.
 - **Sessions survive everything.** mosh handles laptop sleep / Wi-Fi roaming; tmux + resurrect
-  survive VM reboots; copy/paste works through the whole stack.
+  survive VM reboots. Clipboard behavior depends on the transport: OSC 52 works over SSH,
+  while stock mosh requires terminal-native selection.
 
 The recipe is cloud-agnostic — anything that runs a Linux VM works. Provisioning and break-glass
 are the only provider-specific parts; GCP and AWS variants are given below.
@@ -119,6 +120,26 @@ user on a shared machine can borrow a forwarded agent while you're connected.)
 Test with `ssh <NODE> 'echo ok'`. If it hangs printing a login.tailscale.com URL, that's the ACL
 `check` action — open the URL once, then get the ACL changed to `accept` (step 2.2).
 
+### Ghostty clipboard settings (on the laptop, not the VM)
+
+Ghostty already defaults to copy-on-select on macOS and allows OSC 52 clipboard writes, but
+make the important behavior explicit and reserve Shift-drag for terminal-native selection even
+when tmux or another application requests mouse capture:
+
+```ini
+# ~/Library/Application Support/com.mitchellh.ghostty/config.ghostty
+clipboard-write = allow
+mouse-shift-capture = never
+```
+
+Open a new Ghostty window after changing the file (or reload the configuration). Do not enable
+`clipboard-read = allow` for this use case: remote-to-local copying only needs write permission,
+and clipboard reads expose local clipboard contents to programs running in the terminal.
+
+There is no SSH client clipboard option to add. SSH is byte-transparent and carries OSC 52 as-is;
+the terminal and tmux settings are the relevant controls. Likewise, no stock mosh setting makes
+OSC 52 work because mosh synchronizes screen state instead of forwarding the terminal byte stream.
+
 ## 4. tmux that survives everything (each person, on the VM)
 
 `~/.tmux.conf` — three clipboard lines matter here; each covers a different copy path
@@ -189,8 +210,9 @@ Practical rules:
   `ssh <NODE>` is stable over the tailnet, and with the tmux config above every copy path
   works (copy-mode, app OSC 52, DCS-wrapped).
 - **Roaming/flaky-network session** → mosh, and copy visible text with your terminal's
-  native selection (hold **Option** on macOS to bypass tmux/app mouse capture). For scrolled-
-  back content: page through `ctrl-b [` and select screenful-wise.
+  native selection. In Ghostty, hold **Shift** while dragging to bypass tmux/app mouse capture;
+  `mouse-shift-capture = never` guarantees the application cannot override that behavior. For
+  scrolled-back content, enter `ctrl-b [` first to freeze the pane, then Shift-drag screenful-wise.
 - Want both at once? **Eternal Terminal** (`et`) survives roaming like mosh but is
   byte-transparent like ssh, so OSC 52 works through it.
 - Config changes only apply to tmux clients attached after the config loaded — when in
@@ -379,7 +401,8 @@ set — install those per person or per project so they don't leak onto teammate
 | ssh hangs on a login.tailscale.com URL | ACL `check` re-auth — open it; fix permanently via `accept` |
 | mosh: "UDP port 60001 not reachable" | You're bypassing the tailnet (public IPs need open UDP; tailnet needs none) |
 | mosh: "needs a UTF-8 native locale" | Your laptop's LANG (e.g. `en_SG.UTF-8`) isn't generated on the VM — cloud images only ship en_US. Fix: `ssh <NODE> 'sudo locale-gen <your LANG> && sudo update-locale'` |
-| Copy/paste dead | **First: are you on mosh?** OSC 52 never traverses stock mosh — switch to an ssh tab or copy with terminal-native selection (Option+drag). On ssh: detach/reattach tmux, verify the `Ms=` line, then run the hop-isolation test below |
+| Selection disappears on mouse-up inside tmux | tmux captured the drag. In Ghostty, Shift-drag for terminal-native selection and set `mouse-shift-capture = never` locally. Alternatively, temporarily run `tmux set -g mouse off` and restore it with `tmux set -g mouse on` |
+| Copy/paste dead | **First: are you on mosh?** OSC 52 never traverses stock mosh — switch to an ssh tab or copy with terminal-native selection (Shift-drag in Ghostty). On ssh: confirm local Ghostty has `clipboard-write = allow`, detach/reattach tmux, verify the `Ms=` line, then run the hop-isolation test below |
 | App says "copied" inside tmux, clipboard empty (works outside tmux, over ssh) | Raw OSC 52 apps need `set -g set-clipboard on`; DCS-wrapping apps (AI agent CLIs) need `set -g allow-passthrough on` — set both |
 | Pasting a screenshot/image does nothing | Expected on every transport: terminals paste text only. Ship the file and paste its path — `pshot` helper in section 5 |
 | Trackpad scrolling cycles shell history in plain mosh | Expected: mosh uses the alternate screen (no scrollback), so terminals convert scroll to arrow keys there. Attach tmux (`tmux new -A -s main`) to scroll real history, or use an ssh tab for the terminal's native scrollback |
