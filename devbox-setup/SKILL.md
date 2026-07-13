@@ -283,6 +283,45 @@ fnm install --lts && corepack enable pnpm
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ```
 
+### Fuzzy file picker with previews (fzf + fd + bat)
+
+Use fzf's shell integration for a fast `Ctrl-T` file picker and `Alt-C` directory picker. Let
+fd generate gitignore-aware candidate lists and let fzf's native preview helper delegate text
+rendering to bat. Install a current fzf release rather than Ubuntu's older package so
+`fzf --zsh` and `fzf-preview.sh` are available:
+
+```sh
+sudo apt-get install -y bat file
+if [[ -d ~/.fzf/.git ]]; then
+  git -C ~/.fzf pull --ff-only
+else
+  git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
+fi
+~/.fzf/install --bin
+mkdir -p ~/.local/bin
+ln -sf ~/.fzf/bin/fzf ~/.local/bin/fzf
+ln -sf ~/.fzf/bin/fzf-preview.sh ~/.local/bin/fzf-preview.sh
+```
+
+Ubuntu names bat's executable `batcat`; the preview helper detects both names. Add this after
+`~/.local/bin` is on `PATH` in `~/.zshrc`:
+
+```sh
+# fd respects .gitignore, includes hidden entries, and excludes .git itself.
+export FZF_DEFAULT_COMMAND='fd --type=file --hidden --strip-cwd-prefix --exclude .git'
+export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+export FZF_ALT_C_COMMAND='fd --type=directory --hidden --strip-cwd-prefix --exclude .git'
+
+# Syntax-highlighted preview pane for Ctrl-T and Alt-C.
+export FZF_CTRL_T_OPTS="--preview '$HOME/.local/bin/fzf-preview.sh {}'"
+export FZF_ALT_C_OPTS="--preview '$HOME/.local/bin/fzf-preview.sh {}'"
+
+command -v fzf >/dev/null && source <(fzf --zsh)
+```
+
+Run `exec zsh`, then press `Ctrl-T` at a prompt. The widget inserts the selected path into the
+current command line; `Alt-C` changes to a selected directory.
+
 ### Faster Rust builds (sccache + mold)
 
 If the team builds Rust, two cheap, high-leverage speedups — complementary, since they hit
